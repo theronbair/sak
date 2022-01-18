@@ -24,7 +24,7 @@ type Options struct {
 }
 
 var (
-   opts = Options{}
+   Opts = Options{}
    now = time.Now()
    nowNano = now.UnixNano()
    nowMilli = nowNano / 1000000
@@ -34,22 +34,22 @@ var (
 
 // can be used for program output; specify n = 0 and no facility
 
-func LOG(n int, logopts L, msgs ...interface{}) {
-   if ( opts.DebugLevel >= n ) {
+func LOG(n int, logOpts L, msgs ...interface{}) {
+   if ( Opts.DebugLevel >= n ) {
       if ( n > 0 ) {
          fmt.Printf("%d:", n)
       }
-      if ( opts.Behavior.PrintTime ) {
-         if ( opts.Behavior.TimeMilli ) {
+      if ( Opts.Behavior.PrintTime ) {
+         if ( Opts.Behavior.TimeMilli ) {
             fmt.Printf("%s:", nowMilli_str)
          } else {
             fmt.Printf("%s", now_str)
          }
       }
-      if ( logopts.F != "" ) {
-         fmt.Printf("%s:", logopts.F)
+      if ( logOpts.F != "" ) {
+         fmt.Printf("%s:", logOpts.F)
       }
-      if ( n > 0 || logopts.F != "" ) {
+      if ( n > 0 || logOpts.F != "" ) {
          fmt.Printf(" ")
       }
       for m := range msgs {
