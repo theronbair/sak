@@ -7,12 +7,12 @@ import (
    spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.0"
+const version = "1.0.1"
 
 type L struct {
-   f string       // "facility" equivalent
-   s string       // "severity" equivalent
-   c string       // error code/key string
+   F string       // "facility" equivalent
+   S string       // "severity" equivalent
+   C string       // error code/key string
 }
 
 type Options struct {
