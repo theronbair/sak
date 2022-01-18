@@ -7,7 +7,7 @@ import (
    spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.2"
+const version = "1.0.5"
 
 type L struct {
    F string       // "facility" equivalent
