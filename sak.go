@@ -7,7 +7,7 @@ import (
    spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.1"
+const version = "1.0.2"
 
 type L struct {
    F string       // "facility" equivalent
@@ -46,10 +46,10 @@ func LOG(n int, logopts L, msgs ...interface{}) {
             fmt.Printf("%s", now_str)
          }
       }
-      if ( logopts.f != "" ) {
-         fmt.Printf("%s:", logopts.f)
+      if ( logopts.F != "" ) {
+         fmt.Printf("%s:", logopts.F)
       }
-      if ( n > 0 || logopts.f != "" ) {
+      if ( n > 0 || logopts.F != "" ) {
          fmt.Printf(" ")
       }
       for m := range msgs {
