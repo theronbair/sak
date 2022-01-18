@@ -62,5 +62,6 @@ func LOG(n int, logOpts L, msgs ...interface{}) {
                fmt.Printf("%s", spew.Sdump(msgs[m]))
          }
       }
+      fmt.Printf("\n")
    }
 }
