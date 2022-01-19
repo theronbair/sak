@@ -7,7 +7,7 @@ import (
    spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.5"
+const version = "1.0.6"
 
 type L struct {
    F string       // "facility" equivalent
@@ -23,45 +23,79 @@ type Options struct {
    }
 }
 
+type LogEntry struct {
+   t time.Time
+   Level int
+   Facility string
+   Severity string
+   Code string
+   Msg string
+   OutputStr string
+   Printed bool
+}
+
 var (
    Opts = Options{}
-   now = time.Now()
-   nowNano = now.UnixNano()
-   nowMilli = nowNano / 1000000
-   nowMilli_str = strconv.FormatInt(nowMilli, 10)
-   now_str = strconv.FormatInt(nowMilli / 1000, 10)
+   LogHist []LogEntry
 )
 
 // can be used for program output; specify n = 0 and no facility
 
 func LOG(n int, logOpts L, msgs ...interface{}) {
-   if ( Opts.DebugLevel >= n ) {
-      if ( n > 0 ) {
-         fmt.Printf("%d:", n)
+   var (
+      ltmp LogEntry
+      timeStr string = ""
+      lStr string = ""
+      fStr string = ""
+      now = time.Now()
+      nowNano = now.UnixNano()
+      nowMilli = nowNano / 1000000
+      nowMilli_str = strconv.FormatInt(nowMilli, 10)
+      now_str = strconv.FormatInt(nowMilli / 1000, 10)
+   )
+
+   ltmp.t = now
+   ltmp.Level = n
+   ltmp.Facility = logOpts.F
+   ltmp.Severity = logOpts.S
+   ltmp.Code = logOpts.C
+
+   if ( Opts.Behavior.PrintTime ) {
+      if ( Opts.Behavior.TimeMilli ) {
+         timeStr = nowMilli_str
+      } else {
+         timeStr = now_str
       }
-      if ( Opts.Behavior.PrintTime ) {
-         if ( Opts.Behavior.TimeMilli ) {
-            fmt.Printf("%s:", nowMilli_str)
-         } else {
-            fmt.Printf("%s", now_str)
-         }
-      }
-      if ( logOpts.F != "" ) {
-         fmt.Printf("%s:", logOpts.F)
-      }
-      if ( n > 0 || logOpts.F != "" ) {
-         fmt.Printf(" ")
-      }
-      for m := range msgs {
-         switch msgs[m].(type) {
-            case string:
-               fmt.Printf("%s", msgs[m].(string))
-            case error:
-               fmt.Printf("%s", msgs[m].(error).Error())
-            default:
-               fmt.Printf("%s", spew.Sdump(msgs[m]))
-         }
-      }
-      fmt.Printf("\n")
+      timeStr += ": "
    }
+   
+   for m := range msgs {
+      switch msgs[m].(type) {
+         case string:
+            ltmp.Msg += msgs[m].(string)
+         case int, int64:
+            ltmp.Msg += strconv.FormatInt(msgs[m].(int64), 10)
+         case float64:
+            ltmp.Msg += strconv.FormatFloat(msgs[m].(float64), 'E', -1, 64)
+         case error:
+            ltmp.Msg += msgs[m].(error).Error()
+         default:
+            ltmp.Msg += spew.Sdump(msgs[m])
+      }
+   }
+
+   if ( n > 0 ) {
+      lStr = strconv.Itoa(n) + ": "
+   }
+
+   if ( logOpts.F != "" ) {
+      fStr = "[" + logOpts.F + "]: "
+   }
+
+   ltmp.OutputStr = fmt.Sprintf("%s%s%s%s", lStr, timeStr, fStr, ltmp.Msg)
+   if ( Opts.DebugLevel >= n ) {
+      fmt.Printf("%s\n", ltmp.OutputStr)
+      ltmp.Printed = true
+   }
+   LogHist = append(LogHist, ltmp)
 }
