@@ -7,7 +7,7 @@ import (
    spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.6"
+const version = "1.0.7"
 
 type L struct {
    F string       // "facility" equivalent
@@ -41,7 +41,7 @@ var (
 
 // can be used for program output; specify n = 0 and no facility
 
-func LOG(n int, logOpts L, msgs ...interface{}) {
+func LOG(n int, msgs ...interface{}) {
    var (
       ltmp LogEntry
       timeStr string = ""
@@ -52,13 +52,14 @@ func LOG(n int, logOpts L, msgs ...interface{}) {
       nowMilli = nowNano / 1000000
       nowMilli_str = strconv.FormatInt(nowMilli, 10)
       now_str = strconv.FormatInt(nowMilli / 1000, 10)
+      logOpts = L{} 
    )
 
    ltmp.t = now
    ltmp.Level = n
-   ltmp.Facility = logOpts.F
-   ltmp.Severity = logOpts.S
-   ltmp.Code = logOpts.C
+   ltmp.Facility = ""
+   ltmp.Severity = ""
+   ltmp.Code = ""
 
    if ( Opts.Behavior.PrintTime ) {
       if ( Opts.Behavior.TimeMilli ) {
@@ -71,6 +72,10 @@ func LOG(n int, logOpts L, msgs ...interface{}) {
    
    for m := range msgs {
       switch msgs[m].(type) {
+         case L:
+            ltmp.Facility = msgs[m].(L).F
+            ltmp.Severity = msgs[m].(L).S
+            ltmp.Code = msgs[m].(L).C
          case string:
             ltmp.Msg += msgs[m].(string)
          case int, int64:
