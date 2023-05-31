@@ -73,9 +73,7 @@ func LOG(n int, msgs ...interface{}) {
    for m := range msgs {
       switch msgs[m].(type) {
          case L:
-            ltmp.Facility = msgs[m].(L).F
-            ltmp.Severity = msgs[m].(L).S
-            ltmp.Code = msgs[m].(L).C
+            logOpts = msgs[m].(L)
          case string:
             ltmp.Msg += msgs[m].(string)
          case int, int64:
@@ -88,6 +86,10 @@ func LOG(n int, msgs ...interface{}) {
             ltmp.Msg += spew.Sdump(msgs[m])
       }
    }
+
+   ltmp.Facility = logOpts.F
+   ltmp.Severity = logOpts.S
+   ltmp.Code = logOpts.C
 
    if ( n > 0 ) {
       lStr = strconv.Itoa(n) + ": "
