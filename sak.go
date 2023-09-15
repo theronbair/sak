@@ -1,110 +1,145 @@
 package sak
 
 import (
-   "fmt"
-   "time"
-   "strconv"
-   spew "github.com/davecgh/go-spew/spew"
+	"fmt"
+	"os"
+	"regexp"
+	"strconv"
+	"time"
+
+	spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.10"
-
-type L struct {
-   F string       // "facility" equivalent
-   S string       // "severity" equivalent
-   C string       // error code/key string
-}
-
-type Options struct {
-   DebugLevel int
-   Behavior struct {
-      PrintTime bool
-      TimeMilli bool
-   }
-}
-
-type LogEntry struct {
-   t time.Time
-   Level int
-   Facility string
-   Severity string
-   Code string
-   Msg string
-   OutputStr string
-   Printed bool
-}
+const version = "1.0.11"
 
 var (
-   Opts = Options{}
-   LogHist []LogEntry
+	Opts     = Options{}
+	FacStack []string
+	LogHist  []LogEntry
 )
+
+func CurrentFacility(f string) {
+	FacStack = append(FacStack, f)
+}
+
+func LastFacility() {
+	FacStack = FacStack[:len(FacStack)-1]
+}
 
 //  can be used for program output; specify n = 0 and no facility
 
 func LOG(n int, msgs ...interface{}) {
-   var (
-      ltmp LogEntry
-      timeStr string = ""
-      lStr string = ""
-      fStr string = ""
-      now = time.Now()
-      nowNano = now.UnixNano()
-      nowMilli = nowNano / 1000000
-      nowMilli_str = strconv.FormatInt(nowMilli, 10)
-      now_str = strconv.FormatInt(nowMilli / 1000, 10)
-      logOpts = L{} 
-   )
+	var (
+		ltmp         LogEntry
+		timeStr      string = ""
+		lStr         string = ""
+		fStr         string = ""
+		now                 = time.Now()
+		nowNano             = now.UnixNano()
+		nowMilli            = nowNano / 1000000
+		nowMilli_str        = strconv.FormatInt(nowMilli, 10)
+		now_str             = strconv.FormatInt(nowMilli/1000, 10)
+		logOpts             = L{}
+	)
 
-   ltmp.t = now
-   ltmp.Level = n
-   ltmp.Facility = ""
-   ltmp.Severity = ""
-   ltmp.Code = ""
+	if Opts.DebugLevel < 0 {
+		Opts.DebugLevel = 0
+	}
 
-   if ( Opts.Behavior.PrintTime ) {
-      if ( Opts.Behavior.TimeMilli ) {
-         timeStr = nowMilli_str
-      } else {
-         timeStr = now_str
-      }
-      timeStr += ": "
-   }
-   
-   for m := range msgs {
-      switch msgs[m].(type) {
-         case L:
-            logOpts = msgs[m].(L)
-         case string:
-            ltmp.Msg += msgs[m].(string)
-         case int:
-            ltmp.Msg += strconv.FormatInt(int64(msgs[m].(int)), 10)
-         case int64:
-            ltmp.Msg += strconv.FormatInt(msgs[m].(int64), 10)
-         case float64:
-            ltmp.Msg += strconv.FormatFloat(msgs[m].(float64), 'E', -1, 64)
-         case error:
-            ltmp.Msg += msgs[m].(error).Error()
-         default:
-            ltmp.Msg += spew.Sdump(msgs[m])
-      }
-   }
+	if Opts.Behavior.LogShiftBuffer <= 0 {
+		Opts.Behavior.LogShiftBuffer = 10
+	}
 
-   ltmp.Facility = logOpts.F
-   ltmp.Severity = logOpts.S
-   ltmp.Code = logOpts.C
+	if len(FacStack) == 0 {
+		FacStack = append(FacStack, "")
+	}
 
-   if ( n > 0 ) {
-      lStr = strconv.Itoa(n) + ": "
-   }
+	override := os.Getenv("SAK_LOG_DLOVERRIDE")
+	if override != "" {
+		// we have an override to the debugging levels; force it to this value regardless of any other settings
+		i, err := strconv.ParseInt(override, 10, 0)
+		if err == nil {
+			Opts.DebugLevel = int(i)
+		}
+	}
 
-   if ( logOpts.F != "" ) {
-      fStr = "[" + logOpts.F + "]: "
-   }
+	filter := os.Getenv("SAK_LOG_FFILTER")
+	if filter != "" && Opts.Behavior.filterRegexp == nil {
+		// we have a filter request; parse it and then filter output against it
+		// filter format is regexp in format specified in https://github.com/google/re2/wiki/Syntax
+		f, err := regexp.Compile(filter)
+		if err == nil {
+			Opts.Behavior.filterRegexp = f
+		}
+	}
 
-   ltmp.OutputStr = fmt.Sprintf("%s%s%s%s", lStr, timeStr, fStr, ltmp.Msg)
-   if ( Opts.DebugLevel >= n ) {
-      fmt.Printf("%s\n", ltmp.OutputStr)
-      ltmp.Printed = true
-   }
-   LogHist = append(LogHist, ltmp)
+	ltmp.t = now
+	ltmp.Level = n
+	ltmp.Facility = FacStack[len(FacStack)-1]
+	ltmp.Severity = ""
+	ltmp.Code = ""
+
+	if Opts.Behavior.PrintTime {
+		if Opts.Behavior.TimeMilli {
+			timeStr = nowMilli_str
+		} else {
+			timeStr = now_str
+		}
+		timeStr += ": "
+	}
+
+	for m := range msgs {
+		switch msgs[m].(type) {
+		case L:
+			logOpts = msgs[m].(L)
+		case string:
+			ltmp.Msg += msgs[m].(string)
+		case int:
+			ltmp.Msg += strconv.FormatInt(int64(msgs[m].(int)), 10)
+		case int64:
+			ltmp.Msg += strconv.FormatInt(msgs[m].(int64), 10)
+		case float64:
+			ltmp.Msg += strconv.FormatFloat(msgs[m].(float64), 'E', -1, 64)
+		case error:
+			ltmp.Msg += msgs[m].(error).Error()
+		default:
+			ltmp.Msg += spew.Sdump(msgs[m])
+		}
+	}
+
+	if logOpts.F != "" {
+		ltmp.Facility = logOpts.F
+	}
+	if logOpts.S != "" {
+		ltmp.Severity = logOpts.S
+	}
+	if logOpts.C != "" {
+		ltmp.Code = logOpts.C
+	}
+
+	if n > 0 {
+		lStr = strconv.Itoa(n) + ": "
+	}
+
+	if ltmp.Facility != "" && n > 0 {
+		fStr = "[" + ltmp.Facility + "]: "
+	}
+
+	ltmp.OutputStr = fmt.Sprintf("%s%s%s%s", lStr, timeStr, fStr, ltmp.Msg)
+	if Opts.DebugLevel >= n {
+		// logic:  logging at level 0 is equivalent to "output", so print in that case;
+		//         logging at appropriate level with no filter in operation, print in that case;
+		//         logging at appropriate level with a filter present and a matching facility, print in THAT case.
+		if n == 0 || Opts.Behavior.filterRegexp == nil || Opts.Behavior.filterRegexp.MatchString(ltmp.Facility) {
+			fmt.Printf("%s\n", ltmp.OutputStr)
+			ltmp.Printed = true
+		}
+	}
+
+	if Opts.MaxLogHist > 0 && int64(len(LogHist)) > Opts.MaxLogHist {
+		LogHist = LogHist[int64(len(LogHist)+Opts.Behavior.LogShiftBuffer)-Opts.MaxLogHist:]
+	}
+	if Opts.MaxLogHist != 0 {
+		LogHist = append(LogHist, ltmp)
+	}
 }
