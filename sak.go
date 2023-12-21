@@ -10,7 +10,7 @@ import (
 	spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.12"
+const version = "1.0.13"
 
 var (
 	Opts    = Options{}
