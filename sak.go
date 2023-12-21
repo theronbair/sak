@@ -10,21 +10,12 @@ import (
 	spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.11"
+const version = "1.0.12"
 
 var (
-	Opts     = Options{}
-	FacStack []string
-	LogHist  []LogEntry
+	Opts    = Options{}
+	LogHist []LogEntry
 )
-
-func CurrentFacility(f string) {
-	FacStack = append(FacStack, f)
-}
-
-func LastFacility() {
-	FacStack = FacStack[:len(FacStack)-1]
-}
 
 //  can be used for program output; specify n = 0 and no facility
 
@@ -50,10 +41,6 @@ func LOG(n int, msgs ...interface{}) {
 		Opts.Behavior.LogShiftBuffer = 10
 	}
 
-	if len(FacStack) == 0 {
-		FacStack = append(FacStack, "")
-	}
-
 	override := os.Getenv("SAK_LOG_DLOVERRIDE")
 	if override != "" {
 		// we have an override to the debugging levels; force it to this value regardless of any other settings
@@ -75,7 +62,7 @@ func LOG(n int, msgs ...interface{}) {
 
 	ltmp.t = now
 	ltmp.Level = n
-	ltmp.Facility = FacStack[len(FacStack)-1]
+	ltmp.Facility = ""
 	ltmp.Severity = ""
 	ltmp.Code = ""
 
