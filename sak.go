@@ -10,7 +10,7 @@ import (
 	spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.13"
+const version = "1.0.14"
 
 var (
 	Opts    = Options{}
@@ -21,7 +21,6 @@ var (
 
 func LOG(n int, msgs ...interface{}) {
 	var (
-		ltmp         LogEntry
 		timeStr      string = ""
 		lStr         string = ""
 		fStr         string = ""
@@ -35,8 +34,18 @@ func LOG(n int, msgs ...interface{}) {
 
 	if Opts.DebugLevel < 0 {
 		Opts.DebugLevel = 0
+	} else {
+		// if we're not keeping the log history, and the message is higher than the debug level, nobody is ever gonna see it, so skip it
+		if Opts.MaxLogHist == 0 && (n > Opts.DebugLevel) {
+			return
+		}
 	}
 
+	if Opts.MaxLogHist == 0 { // truncate it
+		LogHist = []LogEntry{}
+	}
+
+	// this is how far we shift the log buffer back when we get to the end
 	if Opts.Behavior.LogShiftBuffer <= 0 {
 		Opts.Behavior.LogShiftBuffer = 10
 	}
@@ -60,11 +69,13 @@ func LOG(n int, msgs ...interface{}) {
 		}
 	}
 
-	ltmp.t = now
-	ltmp.Level = n
-	ltmp.Facility = ""
-	ltmp.Severity = ""
-	ltmp.Code = ""
+	ltmp := LogEntry{
+		t:        now,
+		Level:    n,
+		Facility: "",
+		Severity: "",
+		Code:     "",
+	}
 
 	if Opts.Behavior.PrintTime {
 		if Opts.Behavior.TimeMilli {
@@ -129,4 +140,8 @@ func LOG(n int, msgs ...interface{}) {
 	if Opts.MaxLogHist != 0 {
 		LogHist = append(LogHist, ltmp)
 	}
+
+	// clean up
+	logOpts = L{}
+	ltmp = LogEntry{}
 }
