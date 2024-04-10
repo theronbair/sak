@@ -73,7 +73,7 @@ import (
 	spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.15"
+const version = "1.0.16"
 
 var (
 	Opts    = Options{}
@@ -211,10 +211,11 @@ func LOG(n int, msgs ...interface{}) {
 		if n == 0 {
 			fmt.Fprintf(os.Stdout, "%s\n", ltmp.OutputStr)
 			ltmp.Printed = true
-		}
-		if Opts.Behavior.filterRegexp == nil || Opts.Behavior.filterRegexp.MatchString(ltmp.Facility) {
-			fmt.Fprintf(os.Stderr, "%s\n", ltmp.OutputStr)
-			ltmp.Printed = true
+		} else {
+			if Opts.Behavior.filterRegexp == nil || Opts.Behavior.filterRegexp.MatchString(ltmp.Facility) {
+				fmt.Fprintf(os.Stderr, "%s\n", ltmp.OutputStr)
+				ltmp.Printed = true
+			}
 		}
 	}
 
