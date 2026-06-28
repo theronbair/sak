@@ -21,6 +21,7 @@ type Options struct {
 		LogShiftBuffer int
 		filterRegexp   *regexp.Regexp
 	}
+	BlockForBufferMutex bool
 }
 
 type LogEntry struct {
@@ -33,7 +34,6 @@ type LogEntry struct {
 	OutputStr string    `json:"outputstr"`
 	Printed   bool      `json:"printed"`
 }
-
 
 // This is pretty simple:  Logify() takes no arguments and returns a string, in which is embedded whatever serialization/redaction of a given variable that you choose.
 // It's meant to provide some way to make things a smidge better than "spew" gives you.

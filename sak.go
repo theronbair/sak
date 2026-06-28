@@ -1,6 +1,6 @@
 /*
 
-sak, Theron Bair, (c) 2024
+sak, Theron Bair, (c) 2026
 Licensed under the BSD 3-clause license (see LICENSE)
 
 This package is designed to be (almost) the simplest conceivable logging mechanism that offers reasonable functionality.
@@ -20,6 +20,8 @@ If you don't have anything extra to put in it (facility, severity, code, whateve
 This is supposed to be simple and "cheap", in terms of memory and compute, in default operation.  It's not quite
 as cheap as just fmt.Println, but I strive to be close.
 
+It is probably not as thread-safe as it could be.  Some efforts have been made.  (h/t ck)
+
 As I find ways to make it simpler and cheaper, I'll implement them.  Ideally it would cost "almost nothing" to log
 a wide variety of stuff at a number of (dynamically-settable) levels, enabling you to figure out what the hell is
 going on more easily.
@@ -32,7 +34,7 @@ Things to like about it:
  • It can, in fact, be used for output at a log level of "0" (which is semantically equivalent to 'always print').  This goes to stdout.
  • It does not offer a multiplicity of formats.  The format is as follows:
    X: (optional time:) [facility/severity] (optional code) <log>
-   where X is the numeric logging level.  (Higher = more detailed)A
+   where X is the numeric logging level.  (Higher = more detailed)
  • It's meant to be as greppable as possible; if you want everything from log level 4, "^4:" is your friend.
    CAVEAT: spew will dump stuff in multiline.
  • If you stuff something into the logging function, it will attempt to print that thing out in a reasonable fashion.
@@ -47,6 +49,12 @@ Things to know about it:
  • "Code" is meant to be an unambiguous error code which can be searched on in the output.  Probably you won't use it.
  • It does have a rolling log buffer.  This is OFF by default.  However, you can turn it on (if you would like) and use that to
    store older logs, maybe ones that weren't printed (so you can dump them out later via some mechanism if needed).
+ • That log buffer is a quasi-ring buffer that "shifts" forward by LogHistBuffer lines at a time, so as to mitigate some of the
+   penalty of constant slice mutation.  If you are expecting one-line-at-a-time rolling... you have to set it.
+ • The log buffer is not *guaranteed* to contain a log line.  That depends on whether you consider it acceptable to block on the
+   buffer mutation mutex or not.  If blocking is NOT acceptable, and you call this in multiple threads, then you may lose lines.
+   If you decide you do not want to lose lines, then you are going to block on calls to LOG().  This is the BlockForBufferMutex
+   flag.
 
 Things to hate about it:
  • You're not going to instantiate a "new logger object" or whatever.  You just call the function.
@@ -68,32 +76,65 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	spew "github.com/davecgh/go-spew/spew"
 )
 
-const version = "1.0.16"
+const version = "1.0.17"
 
 var (
-	Opts    = Options{}
-	LogHist []LogEntry
+	Opts      = Options{}
+	histMutex sync.Mutex
+	LogHist   []LogEntry
+
+	// atomic copies of hot-path config to avoid locking on reads
+	debugLevel   atomic.Int32
+	maxLogHist   atomic.Int64
+	filterRegexp atomic.Pointer[regexp.Regexp]
 )
+
+// SetDebugLevel updates the debug level atomically.
+func SetDebugLevel(n int) {
+	debugLevel.Store(int32(n))
+	Opts.DebugLevel = n
+}
+
+// SetMaxLogHist updates the max log history atomically.
+// Setting to 0 disables the buffer; setting to -1 means unlimited.
+func SetMaxLogHist(n int64) {
+	maxLogHist.Store(n)
+	Opts.MaxLogHist = n
+	if n == 0 {
+		histMutex.Lock()
+		LogHist = []LogEntry{}
+		histMutex.Unlock()
+	}
+}
 
 func LOG(n int, msgs ...interface{}) {
 	// first:  do a couple basic checks to make this cheap if we can
-	// there are some intriguing semantics of making the debugging level negative, but that comes later; if negative, fix it
-	if Opts.DebugLevel < 0 {
-		Opts.DebugLevel = 0
+	// pull from atomics if set, otherwise fall back to Opts (backward compat with direct assignment)
+	dl := int(debugLevel.Load())
+	if dl == 0 && Opts.DebugLevel != 0 {
+		dl = Opts.DebugLevel
+	}
+	mh := maxLogHist.Load()
+	if mh == 0 && Opts.MaxLogHist != 0 {
+		mh = Opts.MaxLogHist
 	}
 
-	if Opts.MaxLogHist == 0 {
-		LogHist = []LogEntry{} // truncate the log if it's supposed to be zero now
+	// there are some intriguing semantics of making the debugging level negative, but that comes later; if negative, fix it
+	if dl < 0 {
+		SetDebugLevel(0)
+		dl = 0
+	}
 
-		// if we're not keeping the log history, and the message is higher than the debug level, nobody is ever gonna see it, so save ourselves some cycles and return right now
-		if n > Opts.DebugLevel {
-			return
-		}
+	// if we're not keeping the log history, and the message is higher than the debug level, nobody is ever gonna see it, so save ourselves some cycles and return right now
+	if mh == 0 && n > dl {
+		return
 	}
 
 	var (
@@ -110,8 +151,9 @@ func LOG(n int, msgs ...interface{}) {
 	)
 
 	// this is how far we shift the log buffer back when we get to the end
-	if Opts.Behavior.LogShiftBuffer <= 0 {
-		Opts.Behavior.LogShiftBuffer = 10
+	shiftBuf := Opts.Behavior.LogShiftBuffer
+	if shiftBuf <= 0 {
+		shiftBuf = 10
 	}
 
 	override := os.Getenv("SAK_LOG_DLOVERRIDE")
@@ -119,18 +161,21 @@ func LOG(n int, msgs ...interface{}) {
 		// we have an override to the debugging levels; force it to this value regardless of any other settings
 		i, err := strconv.ParseInt(override, 10, 0)
 		if err == nil {
-			Opts.DebugLevel = int(i)
+			SetDebugLevel(int(i))
+			dl = int(i)
 		} else {
-			Opts.DebugLevel = 0
+			SetDebugLevel(0)
+			dl = 0
 		}
 	}
 
 	filter := os.Getenv("SAK_LOG_FFILTER")
-	if filter != "" && Opts.Behavior.filterRegexp == nil {
+	if filter != "" && filterRegexp.Load() == nil {
 		// we have a filter request; parse it and then filter output against it
 		// filter format is regexp in format specified in https://github.com/google/re2/wiki/Syntax
 		f, err := regexp.Compile(filter)
 		if err == nil {
+			filterRegexp.Store(f)
 			Opts.Behavior.filterRegexp = f
 		}
 	}
@@ -165,7 +210,7 @@ func LOG(n int, msgs ...interface{}) {
 			// otherwise, print it out as the type that it is
 			case string:
 				ltmp.Msg += m.(string)
-			case int, int64:
+			case int, uint, int64, uint64:
 				ltmp.Msg += fmt.Sprintf("%d", m)
 			case float32, float64:
 				ltmp.Msg += fmt.Sprintf("%f", m)
@@ -204,15 +249,17 @@ func LOG(n int, msgs ...interface{}) {
 	}
 
 	ltmp.OutputStr = fmt.Sprintf("%s%s%s%s%s", lStr, timeStr, fStr, cStr, ltmp.Msg)
-	if Opts.DebugLevel >= n {
+
+	if dl >= n {
 		// logic:  logging at level 0 is equivalent to "output", so print in that case;
 		//         logging at appropriate level with no filter in operation, print in that case;
 		//         logging at appropriate level with a filter present and a matching facility, print in THAT case.
+		filt := filterRegexp.Load()
 		if n == 0 {
 			fmt.Fprintf(os.Stdout, "%s\n", ltmp.OutputStr)
 			ltmp.Printed = true
 		} else {
-			if Opts.Behavior.filterRegexp == nil || Opts.Behavior.filterRegexp.MatchString(ltmp.Facility) {
+			if filt == nil || filt.MatchString(ltmp.Facility) {
 				fmt.Fprintf(os.Stderr, "%s\n", ltmp.OutputStr)
 				ltmp.Printed = true
 			}
@@ -220,11 +267,26 @@ func LOG(n int, msgs ...interface{}) {
 	}
 
 	// juggle the log buffer if needed
-	if Opts.MaxLogHist > 0 && int64(len(LogHist)) > Opts.MaxLogHist {
-		LogHist = LogHist[int64(len(LogHist)+Opts.Behavior.LogShiftBuffer)-Opts.MaxLogHist:]
-	}
-	if Opts.MaxLogHist != 0 {
-		LogHist = append(LogHist, ltmp)
+	if mh != 0 {
+		if Opts.BlockForBufferMutex {
+			// caller has decided they want guaranteed buffer entries; block if needed
+			histMutex.Lock()
+			if mh > 0 && int64(len(LogHist)) > mh {
+				LogHist = LogHist[int64(len(LogHist)+shiftBuf)-mh:]
+			}
+			LogHist = append(LogHist, ltmp)
+			histMutex.Unlock()
+		} else {
+			// non-blocking: try to grab the lock, but if someone else has it, drop the buffer entry
+			// the log was still printed; we just lose it from the in-memory history
+			if histMutex.TryLock() {
+				if mh > 0 && int64(len(LogHist)) > mh {
+					LogHist = LogHist[int64(len(LogHist)+shiftBuf)-mh:]
+				}
+				LogHist = append(LogHist, ltmp)
+				histMutex.Unlock()
+			}
+		}
 	}
 
 	// clean up
